@@ -130,7 +130,8 @@ export default function App() {
     const cardData = await generateCardImage();
     if (!cardData || !result) return;
     
-    const filename = `ilifted_${weight}${unit}_${result.objectTag}.png`.toLowerCase();
+    const date = new Date().toISOString().split('T')[0];
+    const filename = `ilifted_${date}_${weight}${unit}_${result.objectTag}.png`.toLowerCase();
     const link = document.createElement('a');
     link.href = cardData;
     link.download = filename;
@@ -143,7 +144,8 @@ export default function App() {
     const cardData = await generateCardImage();
     if (!cardData || !result) return;
     
-    const filename = `ilifted_${weight}${unit}_${result.objectTag}.png`.toLowerCase();
+    const date = new Date().toISOString().split('T')[0];
+    const filename = `ilifted_${date}_${weight}${unit}_${result.objectTag}.png`.toLowerCase();
     try {
       const res = await fetch(cardData);
       const blob = await res.blob();
@@ -151,7 +153,7 @@ export default function App() {
 
       if (navigator.share) {
         await navigator.share({
-          title: 'iLifted',
+          title: `iLifted - ${weight}${unit} ${result.objectTag}`,
           text: result.message,
           files: [file],
         });

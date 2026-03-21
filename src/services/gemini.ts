@@ -28,10 +28,13 @@ export async function getWeightComparison(weight: number, unit: string, category
   4. Be fast and concise.
   
   Return a JSON object with:
-  - "message": A punchy, celebratory message in the SECOND PERSON (talking to the user) like "You just lifted the equivalent of a fully grown giant panda!"
-  - "shortDescription": A very short summary, e.g., "a giant panda".
+  - "message": A punchy, celebratory message talking TO the user. 
+    * USE SECOND PERSON ("You just...", "Look at you...", "You're basically...") or EXCLAMATIONS ("Wow!", "Great Scott!", "Avast!").
+    * NEVER use first person ("I just...", "I lifted...").
+    * Example: "Holy smokes! You just hoisted a newborn baby elephant like it was a rubber ducky!"
+  - "shortDescription": A very short summary, e.g., "a newborn baby elephant".
   - "imagePrompt": A detailed prompt for an image generator showing the item.
-  - "objectTag": A single word (lowercase, no spaces) that identifies the object, e.g., "panda" or "vespa".
+  - "objectTag": A single word (lowercase, no spaces) that identifies the object, e.g., "elephant" or "vespa".
   - "items": A list containing only that one item.`;
 
   const response = await ai.models.generateContent({
