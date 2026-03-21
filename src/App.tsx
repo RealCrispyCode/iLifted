@@ -128,11 +128,12 @@ export default function App() {
 
   const handleDownload = async () => {
     const cardData = await generateCardImage();
-    if (!cardData) return;
+    if (!cardData || !result) return;
     
+    const filename = `ilifted_${weight}${unit}_${result.objectTag}.png`.toLowerCase();
     const link = document.createElement('a');
     link.href = cardData;
-    link.download = `lift-card-${weight}${unit}.png`;
+    link.download = filename;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -142,14 +143,15 @@ export default function App() {
     const cardData = await generateCardImage();
     if (!cardData || !result) return;
     
+    const filename = `ilifted_${weight}${unit}_${result.objectTag}.png`.toLowerCase();
     try {
       const res = await fetch(cardData);
       const blob = await res.blob();
-      const file = new File([blob], 'lift-card.png', { type: 'image/png' });
+      const file = new File([blob], filename, { type: 'image/png' });
 
       if (navigator.share) {
         await navigator.share({
-          title: 'I lifted...',
+          title: 'iLifted',
           text: result.message,
           files: [file],
         });
@@ -295,17 +297,17 @@ export default function App() {
               key="result-view"
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
-              className="flex-1 flex flex-col min-h-0 space-y-3"
+              className="flex-1 flex flex-col min-h-0 space-y-2"
             >
               {/* Message Above Image */}
               <div className="px-2 text-center shrink-0">
-                <h2 className="text-lg font-bold leading-tight line-clamp-2">
+                <h2 className="text-sm sm:text-base font-bold leading-tight text-zinc-100 text-balance">
                   {result.message}
                 </h2>
               </div>
 
               {/* Result Card (UI View) */}
-              <div className="flex-1 min-h-0 bg-white rounded-2xl overflow-hidden shadow-xl flex flex-col mx-auto w-full max-w-[320px]">
+              <div className="flex-1 min-h-[200px] bg-white rounded-2xl overflow-hidden shadow-xl flex flex-col mx-auto w-full max-w-[320px] shrink">
                 <div className="flex-1 relative bg-white min-h-0">
                   {imageUrl ? (
                     <motion.img
@@ -362,7 +364,7 @@ export default function App() {
 
               <button
                 onClick={reset}
-                className="w-full flex items-center justify-center gap-2 text-zinc-500 text-xs font-bold py-2 hover:text-zinc-100 transition-colors shrink-0"
+                className="w-full flex items-center justify-center gap-2 text-zinc-500 text-xs font-bold py-1.5 hover:text-zinc-100 transition-colors shrink-0"
               >
                 <ArrowLeft className="w-4 h-4" />
                 Try Another Lift

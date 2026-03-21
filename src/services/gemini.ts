@@ -12,6 +12,7 @@ export interface ComparisonResult {
   message: string;
   shortDescription: string;
   imagePrompt: string;
+  objectTag: string;
   items: string[];
 }
 
@@ -27,9 +28,10 @@ export async function getWeightComparison(weight: number, unit: string, category
   4. Be fast and concise.
   
   Return a JSON object with:
-  - "message": A punchy, celebratory message in the first person (bragging tone) like "I just lifted the equivalent of a fully grown giant panda!"
+  - "message": A punchy, celebratory message in the SECOND PERSON (talking to the user) like "You just lifted the equivalent of a fully grown giant panda!"
   - "shortDescription": A very short summary, e.g., "a giant panda".
   - "imagePrompt": A detailed prompt for an image generator showing the item.
+  - "objectTag": A single word (lowercase, no spaces) that identifies the object, e.g., "panda" or "vespa".
   - "items": A list containing only that one item.`;
 
   const response = await ai.models.generateContent({
@@ -44,12 +46,13 @@ export async function getWeightComparison(weight: number, unit: string, category
           message: { type: Type.STRING },
           shortDescription: { type: Type.STRING },
           imagePrompt: { type: Type.STRING },
+          objectTag: { type: Type.STRING },
           items: {
             type: Type.ARRAY,
             items: { type: Type.STRING }
           }
         },
-        required: ["message", "shortDescription", "imagePrompt", "items"]
+        required: ["message", "shortDescription", "imagePrompt", "objectTag", "items"]
       }
     }
   });
