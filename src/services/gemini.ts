@@ -1,6 +1,12 @@
 import { GoogleGenAI, Type, ThinkingLevel } from "@google/genai";
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
+const getAIClient = () => {
+  const apiKey = import.meta.env.VITE_GEMINI_API_KEY || process.env.GEMINI_API_KEY || "";
+  if (!apiKey) {
+    throw new Error("GEMINI_API_KEY is missing. Please set it in your environment variables.");
+  }
+  return new GoogleGenAI({ apiKey });
+};
 
 export interface ComparisonResult {
   message: string;
@@ -10,6 +16,7 @@ export interface ComparisonResult {
 }
 
 export async function getWeightComparison(weight: number, unit: string, category: string): Promise<ComparisonResult> {
+  const ai = getAIClient();
   const prompt = `The user just lifted ${weight} ${unit}. 
   Provide a funny and interesting comparison of ONE SINGLE item that weighs AT MOST ${weight} ${unit} in the category "${category}".
   
@@ -51,6 +58,7 @@ export async function getWeightComparison(weight: number, unit: string, category
 }
 
 export async function generateComparisonImage(prompt: string): Promise<string> {
+  const ai = getAIClient();
   const response = await ai.models.generateContent({
     model: "gemini-2.5-flash-image",
     contents: {

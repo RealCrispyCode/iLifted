@@ -69,9 +69,9 @@ export default function App() {
         origin: { y: 0.6 },
         colors: ['#10b981', '#3b82f6', '#f59e0b']
       });
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      setError('Something went wrong. Please try again.');
+      setError(err.message || 'Something went wrong. Please try again.');
       setLoading(false);
     }
   };
