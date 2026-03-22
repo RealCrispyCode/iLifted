@@ -123,22 +123,12 @@ async function getWeightComparisonFallback(weight: number, unit: string, categor
   
   Return ONLY the JSON.`;
 
-  const maxRetries = 2;
+  const maxRetries = 3;
   for (let i = 0; i < maxRetries; i++) {
     try {
-      const response = await fetch('https://text.pollinations.ai/', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          messages: [
-            { role: 'system', content: 'You are a helpful assistant that only returns valid JSON.' },
-            { role: 'user', content: prompt }
-          ],
-          model: 'openai',
-          json: true,
-          seed: Math.floor(Math.random() * 1000000)
-        })
-      });
+      // Use GET for better reliability on Pollinations
+      const url = `https://text.pollinations.ai/${encodeURIComponent(prompt)}?json=true&model=openai&seed=${Math.floor(Math.random() * 1000000)}`;
+      const response = await fetch(url);
 
       if (!response.ok) throw new Error(`Pollinations text fallback failed with status ${response.status}`);
       const text = await response.text();
@@ -160,7 +150,6 @@ async function getWeightComparisonFallback(weight: number, unit: string, categor
       if (i === maxRetries - 1) {
         throw new Error("QUOTA_EXCEEDED_DAY");
       }
-      // Wait a bit before retry
       await new Promise(resolve => setTimeout(resolve, 1000 * (i + 1)));
     }
   }
@@ -169,13 +158,23 @@ async function getWeightComparisonFallback(weight: number, unit: string, categor
 }
 
 async function generatePollinationsImage(prompt: string): Promise<string> {
-  // Clean the prompt to remove any characters that might break the URL
   const cleanPrompt = prompt.replace(/["']/g, '').trim();
   const enhancedPrompt = `A premium yet playful, high-quality photorealistic studio shot of: ${cleanPrompt}. The image should have a centered, square composition with a subtle gym or weightlifting flavor, using professional lighting and sharp focus. Feel free to be playful with the background, incorporating fitness-themed elements in visually engaging ways to give the subject an athletic presence. No text.`;
   
-  // Use a fixed width/height that is known to work well
-  // Adding model=flux for potentially better quality and seed for variety
-  return `https://image.pollinations.ai/prompt/${encodeURIComponent(enhancedPrompt)}?width=1024&height=1024&nologo=true&seed=${Math.floor(Math.random() * 1000000)}&model=flux`;
+  const imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(enhancedPrompt)}?width=1024&height=1024&nologo=true&seed=${Math.floor(Math.random() * 1000000)}&model=flux`;
+  
+  // Actually fetch the image to ensure it's ready before returning the URL
+  // This makes the loading state in the UI accurate
+  try {
+    const response = await fetch(imageUrl);
+    if (!response.ok) throw new Error("Pollinations image generation failed");
+    const blob = await response.blob();
+    return URL.createObjectURL(blob);
+  } catch (error) {
+    console.error("Error pre-fetching Pollinations image:", error);
+    // Return the URL anyway as a last resort, browser might still load it
+    return imageUrl;
+  }
 }
 
 export async function generateComparisonImage(prompt: string): Promise<string> {
