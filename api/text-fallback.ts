@@ -12,6 +12,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   const openRouterKey = process.env.OPENROUTER_API_KEY;
   if (!openRouterKey) {
+    console.warn("OPENROUTER_API_KEY not set");
     return res.status(200).json({ error: 'OPENROUTER_API_KEY not configured', fallback: true });
   }
 
@@ -40,32 +41,48 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         })
       });
 
+      console.log(`OpenRouter ${model} status: ${response.status}`);
+
       if (!response.ok) {
-        console.warn(`OpenRouter model ${model} returned ${response.status}`);
+        const errBody = await response.text();
+        console.warn(`OpenRouter ${model} error body:`, errBody.substring(0, 200));
         continue;
       }
 
       const data = await response.json();
+      console.log(`OpenRouter ${model} raw response:`, JSON.stringify(data).substring(0, 300));
+
       const content = data.choices?.[0]?.message?.content;
-      if (!content) continue;
+      if (!content) {
+        console.warn(`OpenRouter ${model} returned no content. Full response:`, JSON.stringify(data).substring(0, 300));
+        continue;
+      }
+
+      console.log(`OpenRouter ${model} content:`, content.substring(0, 200));
 
       const firstBrace = content.indexOf('{');
       const lastBrace = content.lastIndexOf('}');
-      if (firstBrace === -1 || lastBrace === -1) continue;
+      if (firstBrace === -1 || lastBrace === -1) {
+        console.warn(`OpenRouter ${model} content has no JSON braces`);
+        continue;
+      }
 
       try {
         const parsed = JSON.parse(content.substring(firstBrace, lastBrace + 1));
+        console.log(`OpenRouter ${model} parsed keys:`, Object.keys(parsed).join(', '));
         if (parsed.message && parsed.shortDescription) {
           console.log(`Text fallback succeeded via OpenRouter ${model}.`);
           return res.status(200).json({ ...parsed, fallbackProvider: 'openrouter-client' });
         }
+        console.warn(`OpenRouter ${model} parsed OK but missing required fields. Keys: ${Object.keys(parsed).join(', ')}`);
       } catch (parseErr) {
-        console.warn(`Failed to parse JSON from OpenRouter ${model}`);
+        console.warn(`Failed to parse JSON from OpenRouter ${model}:`, content.substring(0, 200));
       }
     } catch (err: any) {
-      console.warn(`OpenRouter model ${model} failed:`, err.message);
+      console.warn(`OpenRouter model ${model} threw:`, err.message);
     }
   }
 
+  console.error("All OpenRouter models failed in text-fallback");
   return res.status(200).json({ error: 'All OpenRouter models failed', fallback: true });
 }
