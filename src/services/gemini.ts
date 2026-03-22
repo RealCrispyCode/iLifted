@@ -1,11 +1,34 @@
 import { GoogleGenAI, Type, ThinkingLevel } from "@google/genai";
 
-const getAIClient = () => {
-  // On Vercel/Client-side, we MUST use the VITE_ prefix
-  const apiKey = import.meta.env.VITE_GEMINI_API_KEY || "";
+let runtimeApiKey: string | null = null;
+
+const getAIClient = async () => {
+  // 1. Try environment variables (bundled at build time)
+  let apiKey = import.meta.env.VITE_GEMINI_API_KEY || (typeof process !== 'undefined' ? process.env.GEMINI_API_KEY : "") || "";
+  
+  // 2. If not found, try the runtime key we fetched
+  if (!apiKey && runtimeApiKey) {
+    apiKey = runtimeApiKey;
+  }
+
+  // 3. If still not found, try to fetch it from the server (runtime)
+  if (!apiKey) {
+    try {
+      const response = await fetch('/api/config');
+      if (response.ok) {
+        const config = await response.json();
+        if (config.geminiApiKey) {
+          runtimeApiKey = config.geminiApiKey;
+          apiKey = runtimeApiKey;
+        }
+      }
+    } catch (e) {
+      console.warn("Failed to fetch runtime config:", e);
+    }
+  }
   
   if (!apiKey) {
-    console.warn("VITE_GEMINI_API_KEY is missing. App will run in Fallback Mode.");
+    console.warn("Gemini API key is missing. App will run in Fallback Mode.");
     return null;
   }
   return new GoogleGenAI({ apiKey });
@@ -37,7 +60,7 @@ export async function getWeightComparison(weight: number, unit: string, category
   }`;
 
   try {
-    const ai = getAIClient();
+    const ai = await getAIClient();
     if (ai) {
       const maxRetries = 1; // Fast retry for Gemini
       for (let i = 0; i < maxRetries; i++) {
@@ -120,7 +143,7 @@ async function generatePollinationsImage(prompt: string): Promise<string> {
 }
 
 export async function generateComparisonImage(prompt: string): Promise<string> {
-  const ai = getAIClient();
+  const ai = await getAIClient();
   const maxRetries = 1; 
   let lastError: any = null;
 
