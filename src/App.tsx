@@ -41,6 +41,8 @@ export default function App() {
   const [result, setResult] = useState<ComparisonResult | null>(null);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [imageError, setImageError] = useState<string | null>(null);
+  const [retryCountdown, setRetryCountdown] = useState<number | null>(null);
   const [isRetrying, setIsRetrying] = useState(false);
   const [apiStatus, setApiStatus] = useState<'gemini' | 'fallback' | 'error' | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -60,6 +62,16 @@ export default function App() {
       }
     } catch (_) {}
   }, []);
+
+  React.useEffect(() => {
+    if (retryCountdown === null) return;
+    if (retryCountdown <= 0) {
+      setRetryCountdown(null);
+      return;
+    }
+    const timer = setTimeout(() => setRetryCountdown(c => (c !== null ? c - 1 : null)), 1000);
+    return () => clearTimeout(timer);
+  }, [retryCountdown]);
 
   // Dynamic font scaling for the UI
   React.useEffect(() => {
@@ -129,51 +141,46 @@ export default function App() {
         setError(err.message || 'Something went wrong. Please try again.');
       }
       setLoading(false);
+      setImageError(null);
     }
   };
 
   const handleGenerateImage = async () => {
     if (!result) return;
     setImageLoading(true);
-    setError(null);
+    setImageError(null);  // clear image error, not the text error
 
     try {
       const imagePromise = generateComparisonImage(result.imagePrompt);
       const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error("IMAGE_TIMEOUT")), 60000)
+        setTimeout(() => reject(new Error("IMAGE_TIMEOUT")), 25000)
       );
 
       const img = await Promise.race([imagePromise, timeoutPromise]) as string;
       setImageUrl(img);
       setApiStatus(img.startsWith('data:') ? 'gemini' : 'fallback');
-      
+
       if (img.startsWith('data:')) {
         setImageLoading(false);
       } else {
-        // For Pollinations URLs, onLoad/onError on the <img> tag clears the spinner.
-        // Add a hard 20s safety net in case neither event fires (e.g. silent network failure).
+        // For Pollinations URLs, add a hard timeout fallback
+        // in case the img onLoad/onError never fires
         setTimeout(() => setImageLoading(false), 20000);
       }
-      
-      confetti({
-        particleCount: 50,
-        spread: 50,
-        origin: { y: 0.5 },
-        colors: ['#10b981', '#3b82f6']
-      });
     } catch (err: any) {
       console.error("Image generation failed or timed out:", err);
       setApiStatus('error');
       if (err.message === "QUOTA_EXCEEDED_MINUTE" || err.message === "QUOTA_EXCEEDED") {
-        setError("AI image generation is resting. Try again in a minute!");
+        setImageError("AI image generation is resting. Try again in a minute!");
+        setRetryCountdown(60);
       } else if (err.message === "QUOTA_EXCEEDED_DAY") {
-        setError("All AI services have hit their rate limits. Credits refill hourly — sit tight and try again shortly!");
+        setImageError("All AI services have hit their rate limits. Credits refill hourly — sit tight and try again shortly!");
       } else if (err.message === "INVALID_KEY") {
-        setError("Invalid API key detected. Please check your Secrets.");
+        setImageError("Invalid API key detected. Please check your Secrets.");
       } else if (err.message === "IMAGE_TIMEOUT") {
-        setError("Image generation timed out. The gym is packed! Try again.");
+        setImageError("Image generation timed out. The gym is packed! Try again.");
       } else {
-        setError("Failed to generate image. Try again?");
+        setImageError("Failed to generate image. Try again?");
       }
       setImageLoading(false);
     }
@@ -455,6 +462,8 @@ export default function App() {
     setWeight('');
     setCategory(null);
     localStorage.removeItem('ilifted_last_result');
+    setImageError(null);
+    setRetryCountdown(null);
   };
 
   return (
@@ -737,20 +746,21 @@ export default function App() {
               {/* Show Me Button (Outside Card) */}
               {!imageUrl && !imageLoading && (
                 <div className="px-4 py-2 space-y-2">
-                  {error && (
-                    <motion.div 
+                  {imageError && (
+                    <motion.div
                       initial={{ opacity: 0, y: 10 }}
                       animate={{ opacity: 1, y: 0 }}
                       className="mb-4 p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-center"
                     >
                       <p className="text-red-400 text-[10px] font-medium mb-2">
-                        {error}
+                        {imageError}
                       </p>
                       <button
                         onClick={handleGenerateImage}
-                        className="px-3 py-1.5 bg-red-500/20 hover:bg-red-500/30 text-red-400 text-[9px] font-bold uppercase tracking-widest rounded-lg transition-colors"
+                        disabled={retryCountdown !== null && retryCountdown > 0}
+                        className="px-3 py-1.5 bg-red-500/20 hover:bg-red-500/30 disabled:opacity-40 disabled:cursor-not-allowed text-red-400 text-[9px] font-bold uppercase tracking-widest rounded-lg transition-colors"
                       >
-                        Retry Image
+                        {retryCountdown !== null && retryCountdown > 0 ? `Retry in ${retryCountdown}s` : 'Retry Image'}
                       </button>
                     </motion.div>
                   )}

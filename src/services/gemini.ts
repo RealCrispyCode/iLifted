@@ -7,7 +7,19 @@ export interface ComparisonResult {
   isFallback?: boolean;
 }
 
-export async function getWeightComparison(weight: number, unit: string, category: string): Promise<ComparisonResult> {
+// Parse the retry delay from a Gemini quota error message like "Please retry in 23.74s"
+function parseRetryDelay(errorMessage: string): number | null {
+  const match = errorMessage.match(/retry in (\d+(?:\.\d+)?)s/i);
+  if (match) return Math.ceil(parseFloat(match[1])) * 1000;
+  return null;
+}
+
+export async function getWeightComparison(
+  weight: number,
+  unit: string,
+  category: string,
+  retryCount = 0
+): Promise<ComparisonResult> {
   try {
     const response = await fetch('/api/compare', {
       method: 'POST',
@@ -18,16 +30,29 @@ export async function getWeightComparison(weight: number, unit: string, category
     if (response.ok) {
       const data = await response.json();
       if (data.fallback) {
-        console.warn("Gemini suggested fallback:", data.error);
-        throw new Error(data.error || "GEMINI_FALLBACK");
+        // Check if Gemini told us how long to wait
+        const retryDelay = data.retryDelay || null;
+        const err = new Error(data.error || "GEMINI_FALLBACK") as any;
+        err.retryDelay = retryDelay;
+        throw err;
       }
-      return { ...data, isFallback: false };
+      return { ...data, isFallback: data.fallbackProvider === 'openrouter' };
     }
 
     const errorData = await response.json().catch(() => ({ error: "Vercel API error" }));
     console.warn("Vercel API error:", errorData.error);
-  } catch (err) {
-    console.warn("Vercel API call failed, jumping to fallback");
+  } catch (err: any) {
+    // If it's a quota error with a known retry delay and we haven't retried yet, auto-retry once
+    if (
+      retryCount === 0 &&
+      err.retryDelay &&
+      (err.message === 'QUOTA_EXCEEDED' || err.message === 'QUOTA_EXCEEDED_MINUTE')
+    ) {
+      console.log(`Auto-retrying after ${err.retryDelay}ms...`);
+      await new Promise(resolve => setTimeout(resolve, err.retryDelay));
+      return getWeightComparison(weight, unit, category, 1);
+    }
+    console.warn("API call failed, jumping to client-side fallback");
   }
 
   const result = await getWeightComparisonFallback(weight, unit, category);
@@ -35,13 +60,10 @@ export async function getWeightComparison(weight: number, unit: string, category
 }
 
 async function getWeightComparisonFallback(weight: number, unit: string, category: string): Promise<ComparisonResult> {
-  console.warn("Gemini unavailable. Entering Pollinations.ai Fallback Mode...");
+  console.warn("Server-side AI unavailable. Entering Pollinations.ai client fallback...");
 
   const prompt = `The user lifted ${weight} ${unit}. Provide a funny comparison of ONE item weighing AT MOST ${weight} ${unit} in category ${category}. Return ONLY a JSON object: {"message": "msg", "shortDescription": "item", "imagePrompt": "prompt", "objectTag": "tag", "items": ["item"]}`;
 
-  // NOTE: This fetch is client-side (browser), so each user has their own IP.
-  // We do NOT use the secret key here — it must never be exposed client-side.
-  // The per-IP hourly rate limit applies per user, which is fine.
   const models = ['openai', 'mistral'];
 
   for (const model of models) {
@@ -67,7 +89,7 @@ async function getWeightComparisonFallback(weight: number, unit: string, categor
       try {
         const parsed = JSON.parse(text.substring(firstBrace, lastBrace + 1)) as ComparisonResult;
         if (parsed.message && parsed.shortDescription) {
-          console.log(`Successfully recovered using ${model} fallback!`);
+          console.log(`Client fallback succeeded using Pollinations ${model}.`);
           return parsed;
         }
       } catch (parseErr) {
@@ -84,7 +106,6 @@ async function getWeightComparisonFallback(weight: number, unit: string, categor
 async function generatePollinationsImage(prompt: string): Promise<string> {
   const cleanPrompt = prompt.replace(/["']/g, '').trim();
   const enhancedPrompt = `A premium photorealistic studio shot of: ${cleanPrompt}. Centered, square composition, professional lighting, sharp focus. No text.`;
-  // Direct browser fetch — per-user IP, no secret key needed
   return `https://image.pollinations.ai/prompt/${encodeURIComponent(enhancedPrompt)}?width=1024&height=1024&nologo=true&seed=${Math.floor(Math.random() * 1000000)}&model=flux`;
 }
 
@@ -102,7 +123,7 @@ export async function generateComparisonImage(prompt: string): Promise<string> {
       const data = await response.json();
       if (data.image) return data.image;
       if (data.fallback) {
-        console.warn("Gemini suggested fallback:", data.error);
+        console.warn("Gemini image fallback triggered:", data.error);
         throw new Error(data.error || "GEMINI_FALLBACK");
       }
       throw new Error("Invalid response format");
@@ -111,14 +132,14 @@ export async function generateComparisonImage(prompt: string): Promise<string> {
     const errorData = await response.json().catch(() => ({ error: "Vercel API error" }));
     throw new Error(errorData.error || "Vercel API error");
   } catch (error: any) {
-    console.warn("Gemini image generation failed, switching to Pollinations fallback:", error.message);
+    console.warn("Gemini image failed, switching to Pollinations:", error.message);
     lastError = error;
   }
 
   try {
     return await generatePollinationsImage(prompt);
   } catch (fallbackError) {
-    console.error("Fallback also failed:", fallbackError);
+    console.error("Image fallback also failed:", fallbackError);
     const errorMessage = (lastError?.message || "").toLowerCase();
     if (errorMessage.includes("exhausted") || errorMessage.includes("daily")) {
       throw new Error("QUOTA_EXCEEDED_DAY");
