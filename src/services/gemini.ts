@@ -59,9 +59,9 @@ export async function getWeightComparison(
 async function getWeightComparisonFallback(weight: number, unit: string, category: string): Promise<ComparisonResult> {
   console.warn("Server-side AI unavailable. Entering client-side fallback chain...");
 
+  // --- Attempt 1: Pollinations (no key needed, client-side IP) ---
   const prompt = `The user lifted ${weight} ${unit}. Provide a funny comparison of ONE item weighing AT MOST ${weight} ${unit} in category ${category}. Return ONLY a JSON object: {"message": "msg", "shortDescription": "item", "imagePrompt": "prompt", "objectTag": "tag", "items": ["item"]}`;
 
-  // --- Attempt 1: Pollinations (no key needed, client-side IP) ---
   const pollinationsModels = ['openai', 'mistral'];
 
   for (const model of pollinationsModels) {
@@ -98,67 +98,32 @@ async function getWeightComparisonFallback(weight: number, unit: string, categor
     }
   }
 
-  // --- Attempt 2: OpenRouter client-side (free tier, browser fetch is fine) ---
-  console.warn("Pollinations unavailable, trying OpenRouter client-side fallback...");
+  // --- Attempt 2: OpenRouter via our Vercel function (key stays server-side) ---
+  console.warn("Pollinations unavailable, trying OpenRouter via /api/text-fallback...");
 
-  const openRouterPrompt = `The user lifted ${weight} ${unit}. Provide a funny comparison of ONE item weighing AT MOST ${weight} ${unit} in category ${category}. Return ONLY valid JSON with no markdown or explanation: {"message": "Celebratory message", "shortDescription": "Item name only", "imagePrompt": "Detailed visual prompt", "objectTag": "tag", "items": ["item"]}`;
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 20000);
 
-  // OpenRouter free models — ordered by reliability
-  const openRouterModels = [
-    'meta-llama/llama-3.3-70b-instruct:free',
-    'mistralai/mistral-7b-instruct:free',
-    'google/gemma-3-12b-it:free'
-  ];
+    const response = await fetch('/api/text-fallback', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal: controller.signal,
+      body: JSON.stringify({ weight, unit, category })
+    });
 
-  for (const model of openRouterModels) {
-    try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 15000);
+    clearTimeout(timeout);
 
-      const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'HTTP-Referer': 'https://ilifted.vercel.app',
-          'X-Title': 'iLifted'
-          // No Authorization header — OpenRouter allows unauthenticated requests
-          // to free models with rate limiting per IP
-        },
-        signal: controller.signal,
-        body: JSON.stringify({
-          model,
-          messages: [{ role: 'user', content: openRouterPrompt }],
-          response_format: { type: 'json_object' }
-        })
-      });
-
-      clearTimeout(timeout);
-
-      if (!response.ok) {
-        console.warn(`OpenRouter client model ${model} returned ${response.status}, trying next...`);
-        continue;
-      }
-
+    if (response.ok) {
       const data = await response.json();
-      const content = data.choices?.[0]?.message?.content;
-      if (!content) continue;
-
-      const firstBrace = content.indexOf('{');
-      const lastBrace = content.lastIndexOf('}');
-      if (firstBrace === -1 || lastBrace === -1) continue;
-
-      try {
-        const parsed = JSON.parse(content.substring(firstBrace, lastBrace + 1)) as ComparisonResult;
-        if (parsed.message && parsed.shortDescription) {
-          console.log(`Client fallback succeeded using OpenRouter ${model}.`);
-          return parsed;
-        }
-      } catch (parseErr) {
-        console.warn(`Failed to parse JSON from OpenRouter ${model}`);
+      if (!data.fallback && data.message && data.shortDescription) {
+        console.log("Client fallback succeeded via /api/text-fallback (OpenRouter).");
+        return data as ComparisonResult;
       }
-    } catch (error) {
-      console.warn(`OpenRouter client model ${model} failed`);
     }
+    console.warn("text-fallback endpoint returned no usable result");
+  } catch (err: any) {
+    console.warn("text-fallback endpoint failed:", err.message);
   }
 
   throw new Error("QUOTA_EXCEEDED_DAY");
