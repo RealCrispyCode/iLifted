@@ -60,7 +60,18 @@ async function getWeightComparisonFallback(weight: number, unit: string, categor
   console.warn("Server-side AI unavailable. Entering client-side fallback chain...");
 
   // --- Attempt 1: Pollinations (no key needed, client-side IP) ---
-  const prompt = `The user lifted ${weight} ${unit}. Provide a funny comparison of ONE item weighing AT MOST ${weight} ${unit} in category ${category}. Return ONLY a JSON object: {"message": "msg", "shortDescription": "item", "imagePrompt": "prompt", "objectTag": "tag", "items": ["item"]}`;
+  const low = Math.round(Number(weight) * 0.7);
+  const high = Math.round(Number(weight) * 1.3);
+  const isSurprise = category === 'surprise me';
+  const categoryInstruction = isSurprise
+    ? `Pick something genuinely surprising or unexpected — obscure, counterintuitive, or the kind of thing that makes someone say "I had no idea that weighed that much". Avoid generic animals or common household objects.`
+    : `Pick something from the category "${category}" that feels apt, interesting, or memorable for this weight. Stay on brief — the category was chosen deliberately.`;
+  const prompt = `The user lifted ${weight} ${unit}.
+Find ONE real-world item that weighs APPROXIMATELY ${weight} ${unit} — it MUST weigh between ${low} ${unit} and ${high} ${unit}. Do not suggest anything that weighs a fraction of this.
+${categoryInstruction}
+The comparison should be interesting and shareable. It can be funny if that fits naturally, but the primary goal is that it's genuinely surprising or satisfying to learn. Accuracy matters — the weight match must be real.
+Return ONLY valid JSON with no markdown or explanation:
+{"message": "Celebratory message to the user referencing the comparison", "shortDescription": "Item name only", "imagePrompt": "Detailed visual prompt for image generation", "objectTag": "single word tag", "items": ["item name"]}`;
 
   const pollinationsModels = ['openai', 'mistral'];
 
