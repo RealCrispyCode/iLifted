@@ -1,5 +1,22 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 
+function buildComparisonPrompt(weight: number, unit: string, category: string): string {
+  const low = Math.round(Number(weight) * 0.7);
+  const high = Math.round(Number(weight) * 1.3);
+  const isSurprise = category === 'surprise me';
+
+  const categoryInstruction = isSurprise
+    ? `Pick something genuinely surprising or unexpected — obscure, counterintuitive, or the kind of thing that makes someone say "I had no idea that weighed that much". Avoid generic animals or common household objects.`
+    : `Pick something from the category "${category}" that feels apt, interesting, or memorable for this weight. Stay on brief — the category was chosen deliberately.`;
+
+  return `The user lifted ${weight} ${unit}.
+Find ONE real-world item that weighs APPROXIMATELY ${weight} ${unit} — it MUST weigh between ${low} ${unit} and ${high} ${unit}. Do not suggest anything that weighs a fraction of this.
+${categoryInstruction}
+The comparison should be interesting and shareable. It can be funny if that fits naturally, but the primary goal is that it's genuinely surprising or satisfying to learn. Accuracy matters — the weight match must be real.
+Return ONLY valid JSON with no markdown or explanation:
+{"message": "Celebratory message to the user referencing the comparison", "shortDescription": "Item name only", "imagePrompt": "Detailed visual prompt for image generation", "objectTag": "single word tag", "items": ["item name"]}`;
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
@@ -10,7 +27,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(400).json({ error: 'weight, unit, and category are required' });
   }
 
-  const prompt = `The user lifted ${weight} ${unit}. Provide a funny comparison of ONE item weighing AT MOST ${weight} ${unit} in category ${category}. Return ONLY a JSON object: {"message": "msg", "shortDescription": "item", "imagePrompt": "prompt", "objectTag": "tag", "items": ["item"]}`;
+  const prompt = buildComparisonPrompt(Number(weight), unit, category);
 
   // --- Attempt 1: Pollinations server-side with secret key (no rate limit) ---
   const pollinationsKey = process.env.POLLINATIONS_SECRET_KEY;
@@ -55,11 +72,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     console.warn("POLLINATIONS_SECRET_KEY not set, skipping Pollinations server-side.");
   }
 
-  // --- Attempt 2: Mistral (authenticated per key, reliable free tier) ---
+  // --- Attempt 2: Mistral ---
   const mistralKey = process.env.MISTRAL_API_KEY;
   if (mistralKey) {
-    const mistralPrompt = `The user lifted ${weight} ${unit}. Provide a funny comparison of ONE item weighing AT MOST ${weight} ${unit} in category ${category}. Return ONLY valid JSON with no markdown or explanation: {"message": "Celebratory message", "shortDescription": "Item name only", "imagePrompt": "Detailed visual prompt", "objectTag": "tag", "items": ["item"]}`;
-
     try {
       const response = await fetch('https://api.mistral.ai/v1/chat/completions', {
         method: 'POST',
@@ -69,7 +84,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         },
         body: JSON.stringify({
           model: 'mistral-small-latest',
-          messages: [{ role: 'user', content: mistralPrompt }],
+          messages: [{ role: 'user', content: prompt }],
           response_format: { type: 'json_object' },
           temperature: 0.7
         }),
@@ -118,8 +133,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(200).json({ error: 'All fallback models failed', fallback: true });
   }
 
-  const orPrompt = `The user lifted ${weight} ${unit}. Provide a funny comparison of ONE item weighing AT MOST ${weight} ${unit} in category ${category}. Return ONLY valid JSON with no markdown or explanation: {"message": "Celebratory message", "shortDescription": "Item name only", "imagePrompt": "Detailed visual prompt", "objectTag": "tag", "items": ["item"]}`;
-
   const orModels = [
     'meta-llama/llama-3.3-70b-instruct:free',
     'mistralai/mistral-7b-instruct:free',
@@ -138,7 +151,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         },
         body: JSON.stringify({
           model,
-          messages: [{ role: 'user', content: orPrompt }],
+          messages: [{ role: 'user', content: prompt }],
           response_format: { type: 'json_object' }
         }),
         signal: AbortSignal.timeout(15000)

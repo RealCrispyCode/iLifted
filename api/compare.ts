@@ -1,6 +1,23 @@
 import { GoogleGenAI, Type, ThinkingLevel } from "@google/genai";
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 
+function buildComparisonPrompt(weight: number, unit: string, category: string): string {
+  const low = Math.round(Number(weight) * 0.7);
+  const high = Math.round(Number(weight) * 1.3);
+  const isSurprise = category === 'surprise me';
+
+  const categoryInstruction = isSurprise
+    ? `Pick something genuinely surprising or unexpected — obscure, counterintuitive, or the kind of thing that makes someone say "I had no idea that weighed that much". Avoid generic animals or common household objects.`
+    : `Pick something from the category "${category}" that feels apt, interesting, or memorable for this weight. Stay on brief — the category was chosen deliberately.`;
+
+  return `The user lifted ${weight} ${unit}.
+Find ONE real-world item that weighs APPROXIMATELY ${weight} ${unit} — it MUST weigh between ${low} ${unit} and ${high} ${unit}. Do not suggest anything that weighs a fraction of this.
+${categoryInstruction}
+The comparison should be interesting and shareable. It can be funny if that fits naturally, but the primary goal is that it's genuinely surprising or satisfying to learn. Accuracy matters — the weight match must be real.
+Return ONLY valid JSON with no markdown or explanation:
+{"message": "Celebratory message to the user referencing the comparison", "shortDescription": "Item name only", "imagePrompt": "Detailed visual prompt for image generation", "objectTag": "single word tag", "items": ["item name"]}`;
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
@@ -19,21 +36,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   const ai = new GoogleGenAI({ apiKey });
-  const isSurprise = category === 'surprise me';
-  const categoryPrompt = isSurprise
-    ? "ANYTHING AT ALL (weird, obscure, unexpected). AVOID generic animals."
-    : `the category "${category}"`;
-
-  const prompt = `The user lifted ${weight} ${unit}. 
-  Provide a funny comparison of ONE item weighing AT MOST ${weight} ${unit} in ${categoryPrompt}.
-  Return ONLY a JSON object:
-  {
-    "message": "Celebratory message to user",
-    "shortDescription": "Item name only",
-    "imagePrompt": "Detailed visual prompt",
-    "objectTag": "tag",
-    "items": ["item"]
-  }`;
+  const prompt = buildComparisonPrompt(Number(weight), unit, category);
 
   // --- Attempt 1: Gemini ---
   try {
@@ -85,8 +88,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const openRouterKey = process.env.OPENROUTER_API_KEY;
   if (openRouterKey) {
     try {
-      const openRouterPrompt = `The user lifted ${weight} ${unit}. Provide a funny comparison of ONE item weighing AT MOST ${weight} ${unit} in category ${isSurprise ? 'anything weird or unexpected' : category}. Return ONLY valid JSON with no markdown, no explanation: {"message": "Celebratory message", "shortDescription": "Item name only", "imagePrompt": "Detailed visual prompt", "objectTag": "tag", "items": ["item"]}`;
-
       const orResponse = await fetch('https://openrouter.ai/api/v1/chat/completions', {
         method: 'POST',
         headers: {
@@ -97,7 +98,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         },
         body: JSON.stringify({
           model: 'meta-llama/llama-3.3-70b-instruct:free',
-          messages: [{ role: 'user', content: openRouterPrompt }],
+          messages: [{ role: 'user', content: prompt }],
           response_format: { type: 'json_object' }
         })
       });
