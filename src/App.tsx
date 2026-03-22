@@ -47,6 +47,20 @@ export default function App() {
   const comparisonTextRef = useRef<HTMLDivElement>(null);
   const comparisonContainerRef = useRef<HTMLDivElement>(null);
 
+  // Restore last result from localStorage on first load
+  React.useEffect(() => {
+    try {
+      const cached = localStorage.getItem('ilifted_last_result');
+      if (cached) {
+        const { weight: w, unit: u, result: r } = JSON.parse(cached);
+        setWeight(w);
+        setUnit(u);
+        setResult(r);
+        setApiStatus(r.isFallback ? 'fallback' : 'gemini');
+      }
+    } catch (_) {}
+  }, []);
+
   // Dynamic font scaling for the UI
   React.useEffect(() => {
     if (result && (imageUrl || !imageLoading)) {
@@ -86,6 +100,13 @@ export default function App() {
       console.log(`Starting comparison for ${weight} ${unit} in ${selectedCategory}...`);
       const comparison = await getWeightComparison(Number(weight), unit, selectedCategory);
       setResult(comparison);
+      try {
+        localStorage.setItem('ilifted_last_result', JSON.stringify({
+          weight: String(weight),
+          unit,
+          result: comparison
+        }));
+      } catch (_) {}
       setApiStatus(comparison.isFallback ? 'fallback' : 'gemini');
       setLoading(false);
       
@@ -99,9 +120,9 @@ export default function App() {
       console.error(err);
       setApiStatus('fallback');
       if (err.message === "QUOTA_EXCEEDED_MINUTE" || err.message === "QUOTA_EXCEEDED") {
-        setError("AI is resting between sets. Try again in a minute!");
+        setError("Gemini is resting between sets. The fallback AI is also busy right now — try again in a minute!");
       } else if (err.message === "QUOTA_EXCEEDED_DAY") {
-        setError("All AI services have hit their rate limits. Credits refill hourly, so sit tight and try again shortly!");
+        setError("All AI services have hit their rate limits. Credits refill hourly — sit tight and try again shortly!");
       } else if (err.message === "INVALID_KEY") {
         setError("Your Gemini API key is invalid. Please add a CUSTOM_GEMINI_KEY in your Secrets.");
       } else {
@@ -129,8 +150,8 @@ export default function App() {
       if (img.startsWith('data:')) {
         setImageLoading(false);
       } else {
-        // For Pollinations URLs, add a hard timeout fallback
-        // in case the img onLoad/onError never fires
+        // For Pollinations URLs, onLoad/onError on the <img> tag clears the spinner.
+        // Add a hard 20s safety net in case neither event fires (e.g. silent network failure).
         setTimeout(() => setImageLoading(false), 20000);
       }
       
@@ -146,7 +167,7 @@ export default function App() {
       if (err.message === "QUOTA_EXCEEDED_MINUTE" || err.message === "QUOTA_EXCEEDED") {
         setError("AI image generation is resting. Try again in a minute!");
       } else if (err.message === "QUOTA_EXCEEDED_DAY") {
-        setError("All AI services have hit their rate limits. Credits refill hourly, so sit tight and try again shortly!");
+        setError("All AI services have hit their rate limits. Credits refill hourly — sit tight and try again shortly!");
       } else if (err.message === "INVALID_KEY") {
         setError("Invalid API key detected. Please check your Secrets.");
       } else if (err.message === "IMAGE_TIMEOUT") {
@@ -433,6 +454,7 @@ export default function App() {
     setImageUrl(null);
     setWeight('');
     setCategory(null);
+    localStorage.removeItem('ilifted_last_result');
   };
 
   return (
