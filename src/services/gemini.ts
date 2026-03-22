@@ -1,9 +1,12 @@
 import { GoogleGenAI, Type, ThinkingLevel } from "@google/genai";
 
 const getAIClient = () => {
-  const apiKey = import.meta.env.VITE_GEMINI_API_KEY || process.env.GEMINI_API_KEY || "";
+  // On Vercel/Client-side, we MUST use the VITE_ prefix
+  const apiKey = import.meta.env.VITE_GEMINI_API_KEY || "";
+  
   if (!apiKey) {
-    throw new Error("GEMINI_API_KEY is missing. Please set it in your environment variables.");
+    console.warn("VITE_GEMINI_API_KEY is missing. App will run in Fallback Mode.");
+    return null;
   }
   return new GoogleGenAI({ apiKey });
 };
@@ -17,83 +20,6 @@ export interface ComparisonResult {
 }
 
 export async function getWeightComparison(weight: number, unit: string, category: string): Promise<ComparisonResult> {
-  const isSurprise = category === 'surprise me';
-  const categoryPrompt = isSurprise 
-    ? "ANYTHING AT ALL (the more bizarre, obscure, or unexpected, the better). AVOID generic nature/animals unless they are extremely weird. Think: obscure tech, specific food items, pop culture props, weird museum artifacts, or abstract but weighable things."
-    : `the category "${category}"`;
-
-  const prompt = `The user just lifted ${weight} ${unit}. 
-  Provide a funny and interesting comparison of ONE SINGLE item that weighs AT MOST ${weight} ${unit} in ${categoryPrompt}.
-  
-  CRITICAL RULES:
-  1. You MUST only use ONE single item. Do not add multiple items or fractions.
-  2. The item's weight MUST NOT exceed ${weight} ${unit}. It should be as close as possible but under or equal to the limit.
-  3. NEVER mention the weight (kg, lbs, etc.) or any numbers in the "message" or "shortDescription". The comparison should be purely descriptive. (e.g., "a giant sack of potatoes" NOT "120 lbs of potatoes").
-  4. Be creative and funny with the object choice.
-  5. ${isSurprise ? "For 'Surprise Me', lean into the weird and wonderful. ACTIVELY AVOID common animals or nature. Think: 'a vintage 1980s arcade cabinet', 'a giant wheel of aged parmesan', 'a full-sized replica of a sci-fi helmet', etc." : "Be fast and concise."}
-  6. Return a JSON object with:
-  - "message": A punchy, celebratory message talking TO the user. 
-  - "shortDescription": The name of the item ONLY.
-  - "imagePrompt": A detailed prompt for an image generator showing the item.
-  - "objectTag": A single word (lowercase, no spaces) that identifies the object.
-  - "items": A list containing only that one item.
-  
-  7. SAFETY: Family-friendly only.`;
-
-  try {
-    const ai = getAIClient();
-    const maxRetries = 2;
-
-    for (let i = 0; i < maxRetries; i++) {
-      try {
-        const response = await ai.models.generateContent({
-          model: "gemini-3-flash-preview",
-          contents: prompt,
-          config: {
-            thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
-            responseMimeType: "application/json",
-            responseSchema: {
-              type: Type.OBJECT,
-              properties: {
-                message: { type: Type.STRING },
-                shortDescription: { type: Type.STRING },
-                imagePrompt: { type: Type.STRING },
-                objectTag: { type: Type.STRING },
-                items: {
-                  type: Type.ARRAY,
-                  items: { type: Type.STRING }
-                }
-              },
-              required: ["message", "shortDescription", "imagePrompt", "objectTag", "items"]
-            }
-          }
-        });
-
-        const parsed = JSON.parse(response.text || "{}") as ComparisonResult;
-        if (parsed.message && parsed.shortDescription) return parsed;
-      } catch (error: any) {
-        const errorMessage = (error.message || "").toLowerCase();
-        // If it's a quota issue, break and go to fallback immediately
-        if (errorMessage.includes("exhausted") || errorMessage.includes("daily") || errorMessage.includes("429")) {
-          break;
-        }
-        // For other errors, wait a bit and retry once
-        if (i < maxRetries - 1) {
-          await new Promise(resolve => setTimeout(resolve, 1000));
-          continue;
-        }
-      }
-    }
-  } catch (initError) {
-    console.warn("Gemini initialization failed, jumping to fallback:", initError);
-  }
-
-  // If we reach here, Gemini failed or was skipped
-  return await getWeightComparisonFallback(weight, unit, category);
-}
-
-async function getWeightComparisonFallback(weight: number, unit: string, category: string): Promise<ComparisonResult> {
-  console.warn("Gemini text generation failed, switching to Pollinations fallback chain...");
   const isSurprise = category === 'surprise me';
   const categoryPrompt = isSurprise 
     ? "ANYTHING AT ALL (weird, obscure, unexpected). AVOID generic animals."
@@ -110,24 +36,62 @@ async function getWeightComparisonFallback(weight: number, unit: string, categor
     "items": ["item"]
   }`;
 
-  // Try multiple models in sequence if one fails
+  try {
+    const ai = getAIClient();
+    if (ai) {
+      const maxRetries = 1; // Fast retry for Gemini
+      for (let i = 0; i < maxRetries; i++) {
+        try {
+          const response = await ai.models.generateContent({
+            model: "gemini-3-flash-preview",
+            contents: prompt,
+            config: {
+              thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+              responseMimeType: "application/json",
+              responseSchema: {
+                type: Type.OBJECT,
+                properties: {
+                  message: { type: Type.STRING },
+                  shortDescription: { type: Type.STRING },
+                  imagePrompt: { type: Type.STRING },
+                  objectTag: { type: Type.STRING },
+                  items: {
+                    type: Type.ARRAY,
+                    items: { type: Type.STRING }
+                  }
+                },
+                required: ["message", "shortDescription", "imagePrompt", "objectTag", "items"]
+              }
+            }
+          });
+
+          const parsed = JSON.parse(response.text || "{}") as ComparisonResult;
+          if (parsed.message && parsed.shortDescription) return parsed;
+        } catch (error: any) {
+          console.warn("Gemini attempt failed:", error.message);
+          break; // Go to fallback immediately on any Gemini error
+        }
+      }
+    }
+  } catch (err) {
+    console.warn("Gemini system error, jumping to fallback");
+  }
+
+  return await getWeightComparisonFallback(weight, unit, category);
+}
+
+async function getWeightComparisonFallback(weight: number, unit: string, category: string): Promise<ComparisonResult> {
+  console.warn("Entering Fallback Mode...");
+  
+  const prompt = `The user lifted ${weight} ${unit}. Provide a funny comparison of ONE item weighing AT MOST ${weight} ${unit} in category ${category}. Return ONLY JSON: {"message": "msg", "shortDescription": "item", "imagePrompt": "prompt", "objectTag": "tag", "items": ["item"]}`;
+
+  // Try multiple models via GET (more robust for CORS/Vercel)
   const models = ['openai', 'mistral', 'searchgpt'];
   
   for (const model of models) {
     try {
-      const response = await fetch('https://text.pollinations.ai/', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          messages: [
-            { role: 'system', content: 'You are a JSON-only response bot. No conversational text.' },
-            { role: 'user', content: prompt }
-          ],
-          model: model,
-          json: true,
-          seed: Math.floor(Math.random() * 1000000)
-        })
-      });
+      const url = `https://text.pollinations.ai/${encodeURIComponent(prompt)}?model=${model}&json=true&seed=${Math.floor(Math.random() * 1000000)}`;
+      const response = await fetch(url);
 
       if (!response.ok) continue;
       const text = await response.text();
@@ -137,11 +101,19 @@ async function getWeightComparisonFallback(weight: number, unit: string, categor
       const parsed = JSON.parse(jsonMatch[0]) as ComparisonResult;
       if (parsed.message && parsed.shortDescription) return parsed;
     } catch (error) {
-      console.warn(`Pollinations model ${model} failed, trying next...`);
+      console.warn(`Fallback model ${model} failed:`, error);
     }
   }
   
-  throw new Error("QUOTA_EXCEEDED_DAY");
+  // EMERGENCY STATIC FALLBACK - The app MUST work
+  console.error("All AI models failed. Using Emergency Static Fallback.");
+  return {
+    message: "Holy smokes! That's a massive lift! You're basically a human crane.",
+    shortDescription: "A vintage cast iron anchor",
+    imagePrompt: "A heavy vintage cast iron anchor resting on a gym floor, studio lighting, professional photography",
+    objectTag: "anchor",
+    items: ["anchor"]
+  };
 }
 
 async function generatePollinationsImage(prompt: string): Promise<string> {
