@@ -105,15 +105,9 @@ async function getWeightComparisonFallback(weight: number, unit: string, categor
     }
   }
   
-  // EMERGENCY STATIC FALLBACK - The app MUST work
-  console.error("All AI models failed. Using Emergency Static Fallback.");
-  return {
-    message: "Holy smokes! That's a massive lift! You're basically a human crane.",
-    shortDescription: "A vintage cast iron anchor",
-    imagePrompt: "A heavy vintage cast iron anchor resting on a gym floor, studio lighting, professional photography",
-    objectTag: "anchor",
-    items: ["anchor"]
-  };
+  // If we reach here, all AI models (Gemini + Fallbacks) have failed
+  console.error("All AI models failed to respond.");
+  throw new Error("QUOTA_EXCEEDED_DAY");
 }
 
 async function generatePollinationsImage(prompt: string): Promise<string> {
