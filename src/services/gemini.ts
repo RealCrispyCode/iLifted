@@ -93,15 +93,17 @@ export async function getWeightComparison(weight: number, unit: string, category
 }
 
 async function generatePollinationsImage(prompt: string): Promise<string> {
-  // We return the direct URL instead of fetching it to avoid CORS issues
-  // Aligning with the Gemini prompt for consistent gym/athletic aesthetic
-  const enhancedPrompt = `A premium yet playful, high-quality photorealistic studio shot of: ${prompt}. The image should have a subtle gym or weightlifting flavor, using professional lighting and sharp focus. Feel free to be playful with the background, incorporating fitness-themed elements in visually engaging ways to give the subject an athletic presence. No text.`;
+  // Clean the prompt to remove any characters that might break the URL
+  const cleanPrompt = prompt.replace(/["']/g, '').trim();
+  const enhancedPrompt = `A premium yet playful, high-quality photorealistic studio shot of: ${cleanPrompt}. The image should have a subtle gym or weightlifting flavor, using professional lighting and sharp focus. Feel free to be playful with the background, incorporating fitness-themed elements in visually engaging ways to give the subject an athletic presence. No text.`;
+  
+  // Use a fixed width/height that is known to work well
   return `https://image.pollinations.ai/prompt/${encodeURIComponent(enhancedPrompt)}?width=1024&height=1024&nologo=true&seed=${Math.floor(Math.random() * 1000000)}`;
 }
 
 export async function generateComparisonImage(prompt: string): Promise<string> {
   const ai = getAIClient();
-  const maxRetries = 1; // Reduce retries to fail over faster
+  const maxRetries = 1; 
   let lastError: any = null;
 
   // Try Gemini first (Higher quality)
@@ -118,15 +120,20 @@ export async function generateComparisonImage(prompt: string): Promise<string> {
       }
     });
 
-    for (const part of response.candidates?.[0]?.content?.parts || []) {
-      if (part.inlineData) {
-        return `data:image/png;base64,${part.inlineData.data}`;
+    const candidate = response.candidates?.[0];
+    if (candidate?.finishReason === 'SAFETY') {
+      console.warn("Gemini image generation blocked by safety filters, falling back to Pollinations");
+    } else {
+      for (const part of candidate?.content?.parts || []) {
+        if (part.inlineData) {
+          return `data:image/png;base64,${part.inlineData.data}`;
+        }
       }
     }
     
-    throw new Error("No image data found");
+    throw new Error("No image data found or blocked by safety");
   } catch (error: any) {
-    console.warn("Gemini image generation failed, switching to Pollinations fallback:", error.message);
+    console.warn("Gemini image generation failed or blocked, switching to Pollinations fallback:", error.message);
     lastError = error;
   }
   

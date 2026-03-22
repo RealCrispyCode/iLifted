@@ -455,6 +455,11 @@ export default function App() {
                           alt="Comparison"
                           className="max-w-full max-h-full object-contain"
                           referrerPolicy="no-referrer"
+                          onError={() => {
+                            console.error("Image failed to load, falling back to text version");
+                            setImageUrl(null);
+                            setError("Image failed to load. Showing text version instead.");
+                          }}
                         />
                       </div>
 
