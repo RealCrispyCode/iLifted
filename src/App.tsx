@@ -112,7 +112,7 @@ export default function App() {
     try {
       const imagePromise = generateComparisonImage(result.imagePrompt);
       const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error("IMAGE_TIMEOUT")), 45000)
+        setTimeout(() => reject(new Error("IMAGE_TIMEOUT")), 60000)
       );
 
       const img = await Promise.race([imagePromise, timeoutPromise]) as string;
@@ -132,7 +132,7 @@ export default function App() {
       } else if (err.message === "QUOTA_EXCEEDED_DAY") {
         setError("The model has hit its max reps for the day and is hitting the showers. Try again tomorrow!");
       } else if (err.message === "IMAGE_TIMEOUT") {
-        setError("Image generation timed out. The free tier is a bit busy, try again in a moment!");
+        setError("Image generation is taking a bit longer than usual. The gym is packed! Try again in a moment.");
       } else {
         setError("Failed to generate image. Try again?");
       }

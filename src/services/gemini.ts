@@ -123,26 +123,49 @@ async function getWeightComparisonFallback(weight: number, unit: string, categor
   
   Return ONLY the JSON.`;
 
-  try {
-    const response = await fetch('https://text.pollinations.ai/', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        messages: [{ role: 'user', content: prompt }],
-        model: 'openai',
-        json: true
-      })
-    });
+  const maxRetries = 2;
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      const response = await fetch('https://text.pollinations.ai/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: [
+            { role: 'system', content: 'You are a helpful assistant that only returns valid JSON.' },
+            { role: 'user', content: prompt }
+          ],
+          model: 'openai',
+          json: true,
+          seed: Math.floor(Math.random() * 1000000)
+        })
+      });
 
-    if (!response.ok) throw new Error("Pollinations text fallback failed");
-    const text = await response.text();
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw new Error("Invalid JSON from fallback");
-    return JSON.parse(jsonMatch[0]) as ComparisonResult;
-  } catch (error) {
-    console.error("Pollinations text fallback also failed:", error);
-    throw new Error("QUOTA_EXCEEDED_DAY");
+      if (!response.ok) throw new Error(`Pollinations text fallback failed with status ${response.status}`);
+      const text = await response.text();
+      
+      // Try to find JSON in the response
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error("Invalid JSON from fallback");
+      
+      const parsed = JSON.parse(jsonMatch[0]) as ComparisonResult;
+      
+      // Basic validation
+      if (!parsed.message || !parsed.shortDescription) {
+        throw new Error("Incomplete JSON from fallback");
+      }
+      
+      return parsed;
+    } catch (error) {
+      console.error(`Pollinations text fallback attempt ${i + 1} failed:`, error);
+      if (i === maxRetries - 1) {
+        throw new Error("QUOTA_EXCEEDED_DAY");
+      }
+      // Wait a bit before retry
+      await new Promise(resolve => setTimeout(resolve, 1000 * (i + 1)));
+    }
   }
+  
+  throw new Error("QUOTA_EXCEEDED_DAY");
 }
 
 async function generatePollinationsImage(prompt: string): Promise<string> {
@@ -151,7 +174,8 @@ async function generatePollinationsImage(prompt: string): Promise<string> {
   const enhancedPrompt = `A premium yet playful, high-quality photorealistic studio shot of: ${cleanPrompt}. The image should have a centered, square composition with a subtle gym or weightlifting flavor, using professional lighting and sharp focus. Feel free to be playful with the background, incorporating fitness-themed elements in visually engaging ways to give the subject an athletic presence. No text.`;
   
   // Use a fixed width/height that is known to work well
-  return `https://image.pollinations.ai/prompt/${encodeURIComponent(enhancedPrompt)}?width=1024&height=1024&nologo=true&seed=${Math.floor(Math.random() * 1000000)}`;
+  // Adding model=flux for potentially better quality and seed for variety
+  return `https://image.pollinations.ai/prompt/${encodeURIComponent(enhancedPrompt)}?width=1024&height=1024&nologo=true&seed=${Math.floor(Math.random() * 1000000)}&model=flux`;
 }
 
 export async function generateComparisonImage(prompt: string): Promise<string> {
