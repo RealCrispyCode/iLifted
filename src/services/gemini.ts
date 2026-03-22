@@ -57,13 +57,14 @@ export async function getWeightComparison(
 }
 
 async function getWeightComparisonFallback(weight: number, unit: string, category: string): Promise<ComparisonResult> {
-  console.warn("Server-side AI unavailable. Entering Pollinations.ai client fallback...");
+  console.warn("Server-side AI unavailable. Entering client-side fallback chain...");
 
   const prompt = `The user lifted ${weight} ${unit}. Provide a funny comparison of ONE item weighing AT MOST ${weight} ${unit} in category ${category}. Return ONLY a JSON object: {"message": "msg", "shortDescription": "item", "imagePrompt": "prompt", "objectTag": "tag", "items": ["item"]}`;
 
-  const models = ['openai', 'mistral'];
+  // --- Attempt 1: Pollinations (no key needed, client-side IP) ---
+  const pollinationsModels = ['openai', 'mistral'];
 
-  for (const model of models) {
+  for (const model of pollinationsModels) {
     try {
       const url = `https://text.pollinations.ai/${encodeURIComponent(prompt)}?model=${model}&json=true&seed=${Math.floor(Math.random() * 1000000)}`;
       const controller = new AbortController();
@@ -90,10 +91,73 @@ async function getWeightComparisonFallback(weight: number, unit: string, categor
           return parsed;
         }
       } catch (parseErr) {
-        console.warn(`Failed to parse JSON from ${model}`);
+        console.warn(`Failed to parse JSON from Pollinations ${model}`);
       }
     } catch (error) {
       console.warn(`Pollinations model ${model} failed`);
+    }
+  }
+
+  // --- Attempt 2: OpenRouter client-side (free tier, browser fetch is fine) ---
+  console.warn("Pollinations unavailable, trying OpenRouter client-side fallback...");
+
+  const openRouterPrompt = `The user lifted ${weight} ${unit}. Provide a funny comparison of ONE item weighing AT MOST ${weight} ${unit} in category ${category}. Return ONLY valid JSON with no markdown or explanation: {"message": "Celebratory message", "shortDescription": "Item name only", "imagePrompt": "Detailed visual prompt", "objectTag": "tag", "items": ["item"]}`;
+
+  // OpenRouter free models — ordered by reliability
+  const openRouterModels = [
+    'meta-llama/llama-3.3-70b-instruct:free',
+    'mistralai/mistral-7b-instruct:free',
+    'google/gemma-3-12b-it:free'
+  ];
+
+  for (const model of openRouterModels) {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 15000);
+
+      const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'HTTP-Referer': 'https://ilifted.vercel.app',
+          'X-Title': 'iLifted'
+          // No Authorization header — OpenRouter allows unauthenticated requests
+          // to free models with rate limiting per IP
+        },
+        signal: controller.signal,
+        body: JSON.stringify({
+          model,
+          messages: [{ role: 'user', content: openRouterPrompt }],
+          response_format: { type: 'json_object' }
+        })
+      });
+
+      clearTimeout(timeout);
+
+      if (!response.ok) {
+        console.warn(`OpenRouter client model ${model} returned ${response.status}, trying next...`);
+        continue;
+      }
+
+      const data = await response.json();
+      const content = data.choices?.[0]?.message?.content;
+      if (!content) continue;
+
+      const firstBrace = content.indexOf('{');
+      const lastBrace = content.lastIndexOf('}');
+      if (firstBrace === -1 || lastBrace === -1) continue;
+
+      try {
+        const parsed = JSON.parse(content.substring(firstBrace, lastBrace + 1)) as ComparisonResult;
+        if (parsed.message && parsed.shortDescription) {
+          console.log(`Client fallback succeeded using OpenRouter ${model}.`);
+          return parsed;
+        }
+      } catch (parseErr) {
+        console.warn(`Failed to parse JSON from OpenRouter ${model}`);
+      }
+    } catch (error) {
+      console.warn(`OpenRouter client model ${model} failed`);
     }
   }
 
@@ -106,7 +170,6 @@ async function generatePollinationsImage(prompt: string): Promise<string> {
   const cleanPrompt = prompt.replace(/["']/g, '').trim();
   const enhancedPrompt = `A premium photorealistic studio shot of: ${cleanPrompt}. Centered, square composition, professional lighting, sharp focus. No text.`;
 
-  // Try turbo first (faster, more available), then fall back to flux
   const models = ['turbo', 'flux'];
 
   for (const model of models) {
@@ -140,7 +203,6 @@ async function generatePollinationsImage(prompt: string): Promise<string> {
     } catch (err: any) {
       clearTimeout(timeout);
       console.warn(`Pollinations ${model} fetch failed:`, err.message);
-      // Continue to next model
     }
   }
 
@@ -153,7 +215,6 @@ async function generateFalImage(prompt: string): Promise<string> {
 
   console.log("Attempting fal.ai image fallback...");
 
-  // Route through our Vercel function so the fal.ai key stays server-side
   const response = await fetch('/api/image-fal', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
