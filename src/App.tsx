@@ -80,12 +80,10 @@ export default function App() {
       const text = comparisonTextRef.current;
       if (!container || !text) return;
 
-      let size = imageUrl ? 22 : 36; // Slightly smaller start for image card
+      let size = imageUrl ? 22 : 36;
       text.style.fontSize = `${size}px`;
       
-      // Use a small delay to ensure layout has settled
       const timeout = setTimeout(() => {
-        // Force a reflow check
         while (text.scrollHeight > container.clientHeight && size > 8) {
           size -= 0.5;
           text.style.fontSize = `${size}px`;
@@ -148,39 +146,34 @@ export default function App() {
   const handleGenerateImage = async () => {
     if (!result) return;
     setImageLoading(true);
-    setImageError(null);  // clear image error, not the text error
+    setImageError(null);
+
+    // Give the full fallback chain (Gemini -> Pollinations -> fal.ai) enough time.
+    // 90s covers the worst case of all three providers being slow in sequence.
+    const TOTAL_TIMEOUT_MS = 90_000;
 
     try {
       const imagePromise = generateComparisonImage(result.imagePrompt);
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error("IMAGE_TIMEOUT")), 25000)
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("IMAGE_TIMEOUT")), TOTAL_TIMEOUT_MS)
       );
 
-      const img = await Promise.race([imagePromise, timeoutPromise]) as string;
+      const img = await Promise.race([imagePromise, timeoutPromise]);
       setImageUrl(img);
       setApiStatus(img.startsWith('data:') ? 'gemini' : 'fallback');
-
-      if (img.startsWith('data:')) {
-        setImageLoading(false);
-      } else {
-        // For Pollinations URLs, add a hard timeout fallback
-        // in case the img onLoad/onError never fires
-        setTimeout(() => setImageLoading(false), 20000);
-      }
+      setImageLoading(false);
     } catch (err: any) {
-      console.error("Image generation failed or timed out:", err);
+      console.error("Image generation failed after all fallbacks:", err);
       setApiStatus('error');
-      if (err.message === "QUOTA_EXCEEDED_MINUTE" || err.message === "QUOTA_EXCEEDED") {
-        setImageError("AI image generation is resting. Try again in a minute!");
-        setRetryCountdown(60);
-      } else if (err.message === "QUOTA_EXCEEDED_DAY") {
-        setImageError("All AI services have hit their rate limits. Credits refill hourly — sit tight and try again shortly!");
-      } else if (err.message === "INVALID_KEY") {
-        setImageError("Invalid API key detected. Please check your Secrets.");
+      if (err.message === "QUOTA_EXCEEDED_DAY") {
+        setImageError("All image providers are tapped out. Credits refill hourly — try again shortly!");
       } else if (err.message === "IMAGE_TIMEOUT") {
         setImageError("Image generation timed out. The gym is packed! Try again.");
+      } else if (err.message === "INVALID_KEY") {
+        setImageError("Invalid API key detected. Please check your Secrets.");
       } else {
         setImageError("Failed to generate image. Try again?");
+        setRetryCountdown(60);
       }
       setImageLoading(false);
     }
@@ -193,16 +186,13 @@ export default function App() {
     const ctx = canvas.getContext('2d');
     if (!ctx) return null;
 
-    // Set canvas size (1080x1440 for 4:3 portrait shareable card)
     canvas.width = 1080;
     canvas.height = 1440;
 
-    // Background
-    ctx.fillStyle = '#ffffff'; // white
+    ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    // Draw neat border
-    ctx.strokeStyle = '#f4f4f5'; // zinc-100
+    ctx.strokeStyle = '#f4f4f5';
     ctx.lineWidth = 40;
     ctx.strokeRect(20, 20, canvas.width - 40, canvas.height - 40);
 
@@ -218,35 +208,31 @@ export default function App() {
       
       ctx.textAlign = 'left';
       ctx.globalAlpha = opacity;
-      ctx.fillStyle = '#10b981'; // teal
+      ctx.fillStyle = '#10b981';
       ctx.fillText('i', startX, y);
-      ctx.fillStyle = '#000000'; // black
+      ctx.fillStyle = '#000000';
       ctx.fillText('Lifted', startX + iWidth, y);
       ctx.globalAlpha = 1;
-      ctx.textBaseline = 'alphabetic'; // Reset
+      ctx.textBaseline = 'alphabetic';
     };
 
     if (imageUrl) {
-      // Load AI image
       const img = new Image();
       img.crossOrigin = "anonymous";
       img.src = imageUrl;
       await new Promise((resolve) => (img.onload = resolve));
 
-      drawBranding(60, 60); // Higher and appropriately sized
+      drawBranding(60, 60);
 
-      // Draw Weight
       ctx.textAlign = 'center';
       ctx.fillStyle = '#000000';
-      ctx.font = 'bold 80px Inter'; // Smaller weight
-      ctx.fillText(`${weight} ${unit}`, centerX, 180); // Higher
+      ctx.font = 'bold 80px Inter';
+      ctx.fillText(`${weight} ${unit}`, centerX, 180);
 
-      // Draw AI Image - Centered and contained
       const imgSize = 750; 
       const imgX = (canvas.width - imgSize) / 2;
-      const imgY = 240; // Higher
+      const imgY = 240;
       
-      // Calculate aspect ratio for contain
       const imgAspect = img.width / img.height;
       let drawW, drawH, drawX, drawY;
       
@@ -262,7 +248,6 @@ export default function App() {
         drawY = imgY;
       }
 
-      // Draw image with rounded corners (clipping)
       ctx.save();
       const radius = 40;
       ctx.beginPath();
@@ -278,25 +263,21 @@ export default function App() {
       ctx.closePath();
       ctx.clip();
       
-      // Fill background for the image area
       ctx.fillStyle = '#f9fafb';
       ctx.fill();
       
       ctx.drawImage(img, drawX, drawY, drawW, drawH);
       ctx.restore();
 
-      // Comparison Text Area - Scale to fit remaining space
       const textAreaY = imgY + imgSize + 40;
-      const availableHeight = 1340 - textAreaY; // More conservative to avoid footer
+      const availableHeight = 1340 - textAreaY;
       
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillStyle = '#10b981'; // emerald-500
+      ctx.fillStyle = '#10b981';
       
-      // Short text for share card: just the item
       const text = result.shortDescription;
       
-      // Helper to wrap and scale text
       const wrapText = (txt: string, maxW: number) => {
         const words = txt.split(' ');
         const lines = [];
@@ -332,41 +313,36 @@ export default function App() {
         ctx.fillText(line, centerX, currentY);
         currentY += lineHeight;
       });
-      ctx.textBaseline = 'alphabetic'; // Reset
+      ctx.textBaseline = 'alphabetic';
 
-      // Footer
       ctx.fillStyle = '#a1a1aa';
       ctx.font = '25px Inter';
       ctx.fillText('Generated by iLifted AI', centerX, 1380);
     } else {
-      // TEXT ONLY VERSION
-      drawBranding(80, 80); // Higher and appropriately sized
+      drawBranding(80, 80);
 
-      // Main Weight - Scale to fit
       ctx.fillStyle = '#000000';
       ctx.textAlign = 'center';
-      let weightFontSize = 180; // Smaller weight
+      let weightFontSize = 180;
       ctx.font = `bold ${weightFontSize}px Inter`;
       while (ctx.measureText(`${weight} ${unit}`).width > 900 && weightFontSize > 100) {
         weightFontSize -= 10;
         ctx.font = `bold ${weightFontSize}px Inter`;
       }
-      ctx.fillText(`${weight} ${unit}`, centerX, 250); // Higher
+      ctx.fillText(`${weight} ${unit}`, centerX, 250);
       
-      // Divider
       ctx.beginPath();
-      ctx.moveTo(centerX - 150, 350); // Higher
+      ctx.moveTo(centerX - 150, 350);
       ctx.lineTo(centerX + 150, 350);
-      ctx.strokeStyle = '#10b981'; // teal divider
+      ctx.strokeStyle = '#10b981';
       ctx.lineWidth = 12;
       ctx.lineCap = 'round';
       ctx.stroke();
 
-      // Comparison - Scale to fit central area
-      const textAreaY = 450; // Higher
-      const availableHeight = 1340 - textAreaY; // More conservative
+      const textAreaY = 450;
+      const availableHeight = 1340 - textAreaY;
       
-      ctx.fillStyle = '#10b981'; // emerald-500
+      ctx.fillStyle = '#10b981';
       ctx.textBaseline = 'middle';
       const text = result.shortDescription;
       
@@ -405,9 +381,8 @@ export default function App() {
         ctx.fillText(line, centerX, currentY);
         currentY += lineHeight;
       });
-      ctx.textBaseline = 'alphabetic'; // Reset
+      ctx.textBaseline = 'alphabetic';
 
-      // Footer
       ctx.fillStyle = '#a1a1aa';
       ctx.font = '30px Inter';
       ctx.fillText('Generated by iLifted AI', centerX, 1400);
@@ -681,8 +656,8 @@ export default function App() {
                           onError={() => {
                             console.error("Image failed to load, falling back to text version");
                             setImageUrl(null);
-                            setImageLoading(false); // CRITICAL: Stop the spinner!
-                            setError("Image failed to load. Showing text version instead.");
+                            setImageLoading(false);
+                            setImageError("Image failed to load. Showing text version instead.");
                           }}
                         />
                       </div>
@@ -703,6 +678,9 @@ export default function App() {
                       </div>
                       <p className="text-zinc-500 font-mono text-[10px] uppercase tracking-widest font-bold">
                         Visualizing your strength...
+                      </p>
+                      <p className="text-zinc-600 text-[9px] font-mono">
+                        Trying multiple providers...
                       </p>
                     </div>
                   ) : (
@@ -768,9 +746,7 @@ export default function App() {
                     onClick={handleGenerateImage}
                     className="relative w-full group overflow-hidden rounded-xl p-[2px] transition-all hover:scale-[1.02] active:scale-[0.98]"
                   >
-                    {/* Chasing Glow Background */}
                     <div className="absolute inset-[-1000%] animate-rotate bg-[conic-gradient(from_90deg_at_50%_50%,#10b981_0%,#3b82f6_25%,#10b981_50%,#3b82f6_75%,#10b981_100%)] opacity-40" />
-                    
                     <div className="relative flex items-center justify-center gap-2 bg-zinc-900 rounded-[10px] py-3 px-6 transition-colors group-hover:bg-zinc-800">
                       <Sparkles className="w-4 h-4 text-emerald-500" />
                       <span className="text-zinc-100 text-sm font-display uppercase tracking-widest">Show me!</span>
